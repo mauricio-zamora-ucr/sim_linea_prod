@@ -144,7 +144,7 @@ class TeacherServer:
         outer = self
 
         class Handler(socketserver.StreamRequestHandler):
-            def handle(self) -> None:  # type: ignore[override]
+            def handle(self) -> None:
                 for raw in self.rfile:
                     message = json.loads(raw.decode("utf-8"))
                     msg_type = message.get("type")
@@ -228,8 +228,15 @@ def run_simulation(
             yield env.timeout(config.process_time)
 
             rejected = rng.random() < config.rework_probability
-            good_qty = order.quantity if not rejected else max(1, order.quantity - 1)
-            rework_qty = 0 if not rejected else 1
+            if rejected:
+                rework_qty = min(
+                    order.quantity,
+                    max(1, round(order.quantity * rng.uniform(0.05, 0.2))),
+                )
+                good_qty = max(0, order.quantity - rework_qty)
+            else:
+                rework_qty = 0
+                good_qty = order.quantity
             status = "done" if not rejected else "rework"
 
             state["inventory"] += good_qty - order.quantity
@@ -260,6 +267,7 @@ def run_simulation(
                         "inventory": state["inventory"],
                         "completed": state["completed"],
                         "rework": state["rework"],
+                        "sent_at": time.time(),
                     },
                 )
 
@@ -368,7 +376,10 @@ def main() -> None:
             "inventory": 0,
         }
         if server.student_state:
-            latest = list(server.student_state.values())[-1]
+            latest = max(
+                server.student_state.values(),
+                key=lambda item: float(item.get("sent_at", 0)),
+            )
             summary = {
                 "completed": int(latest.get("completed", 0)),
                 "rework": int(latest.get("rework", 0)),
