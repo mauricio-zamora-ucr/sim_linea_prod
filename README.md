@@ -13,6 +13,7 @@ Simulador/juego base de línea de producción para cursos de producción y manuf
   - Profesor configura semilla/parámetros y escucha avances.
   - Estudiantes solicitan configuración y reportan progreso.
 - Visualización en pygame (o modo `--headless` para ejecución sin ventana).
+- Parámetros de reproceso configurables (`--rework-probability`, `--rework-min-ratio`, `--rework-max-ratio`).
 
 > Nota: no se usan imágenes externas, por lo que no hay riesgo de licenciamiento de assets.
 

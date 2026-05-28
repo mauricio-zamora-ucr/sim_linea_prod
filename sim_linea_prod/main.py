@@ -6,6 +6,7 @@ import random
 import socket
 import socketserver
 import sqlite3
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -29,7 +30,10 @@ class SimulationConfig:
     steps: int
     process_time: float = 1.0
     rework_probability: float = 0.15
+    rework_min_ratio: float = 0.05
+    rework_max_ratio: float = 0.2
     initial_inventory: int = 50
+    display_seconds: int = 6
 
 
 class SQLiteStore:
@@ -155,7 +159,10 @@ class TeacherServer:
                             "steps": outer.config.steps,
                             "process_time": outer.config.process_time,
                             "rework_probability": outer.config.rework_probability,
+                            "rework_min_ratio": outer.config.rework_min_ratio,
+                            "rework_max_ratio": outer.config.rework_max_ratio,
                             "initial_inventory": outer.config.initial_inventory,
+                            "display_seconds": outer.config.display_seconds,
                         }
                         self.wfile.write((json.dumps(payload) + "\n").encode("utf-8"))
                         self.wfile.flush()
@@ -176,7 +183,7 @@ def request_config(host: str, port: int) -> Optional[SimulationConfig]:
     try:
         with socket.create_connection((host, port), timeout=3) as conn:
             conn.sendall(json.dumps({"type": "config_request"}).encode("utf-8") + b"\n")
-            response = conn.recv(4096).decode("utf-8").strip()
+            response = conn.makefile("r", encoding="utf-8").readline().strip()
             if not response:
                 return None
             payload = json.loads(response)
@@ -187,9 +194,13 @@ def request_config(host: str, port: int) -> Optional[SimulationConfig]:
                 steps=int(payload["steps"]),
                 process_time=float(payload["process_time"]),
                 rework_probability=float(payload["rework_probability"]),
+                rework_min_ratio=float(payload["rework_min_ratio"]),
+                rework_max_ratio=float(payload["rework_max_ratio"]),
                 initial_inventory=int(payload["initial_inventory"]),
+                display_seconds=int(payload.get("display_seconds", 6)),
             )
-    except OSError:
+    except OSError as exc:
+        print(f"No se pudo obtener configuración del profesor: {exc}", file=sys.stderr)
         return None
 
 
@@ -197,8 +208,8 @@ def send_progress(host: str, port: int, message: Dict[str, object]) -> None:
     try:
         with socket.create_connection((host, port), timeout=1) as conn:
             conn.sendall(json.dumps(message).encode("utf-8") + b"\n")
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"No se pudo enviar progreso al profesor: {exc}", file=sys.stderr)
 
 
 def run_simulation(
@@ -231,7 +242,13 @@ def run_simulation(
             if rejected:
                 rework_qty = min(
                     order.quantity,
-                    max(1, round(order.quantity * rng.uniform(0.05, 0.2))),
+                    max(
+                        1,
+                        round(
+                            order.quantity
+                            * rng.uniform(config.rework_min_ratio, config.rework_max_ratio)
+                        ),
+                    ),
                 )
                 good_qty = max(0, order.quantity - rework_qty)
             else:
@@ -278,7 +295,9 @@ def run_simulation(
     return events
 
 
-def maybe_show_pygame_dashboard(headless: bool, title: str, summary: Dict[str, int]) -> None:
+def maybe_show_pygame_dashboard(
+    headless: bool, title: str, summary: Dict[str, int], display_seconds: int
+) -> None:
     if headless:
         print(f"[{title}] resumen: {summary}")
         return
@@ -292,7 +311,7 @@ def maybe_show_pygame_dashboard(headless: bool, title: str, summary: Dict[str, i
     clock = pygame.time.Clock()
 
     running = True
-    shown_until = time.time() + 6
+    shown_until = time.time() + display_seconds
 
     while running:
         for event in pygame.event.get():
@@ -331,7 +350,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=12)
     parser.add_argument("--process-time", type=float, default=1.0)
     parser.add_argument("--rework-probability", type=float, default=0.15)
+    parser.add_argument("--rework-min-ratio", type=float, default=0.05)
+    parser.add_argument("--rework-max-ratio", type=float, default=0.2)
     parser.add_argument("--initial-inventory", type=int, default=50)
+    parser.add_argument("--display-seconds", type=int, default=6)
     parser.add_argument("--import-file", type=str)
     parser.add_argument("--export-prefix", type=str)
     parser.add_argument("--db", type=str, default="sim_linea_prod.sqlite")
@@ -355,7 +377,10 @@ def main() -> None:
         steps=args.steps,
         process_time=args.process_time,
         rework_probability=args.rework_probability,
+        rework_min_ratio=args.rework_min_ratio,
+        rework_max_ratio=args.rework_max_ratio,
         initial_inventory=args.initial_inventory,
+        display_seconds=args.display_seconds,
     )
 
     store = SQLiteStore(args.db)
@@ -394,6 +419,7 @@ def main() -> None:
             args.headless,
             f"Panel de profesor ({len(server.student_state)} estudiantes)",
             summary,
+            local_config.display_seconds,
         )
         return
 
@@ -420,7 +446,12 @@ def main() -> None:
         "rework": sum(int(e["rework_qty"]) for e in events),
         "inventory": int(events[-1]["inventory"]) if events else config.initial_inventory,
     }
-    maybe_show_pygame_dashboard(args.headless, "Simulador de producción", summary)
+    maybe_show_pygame_dashboard(
+        args.headless,
+        "Simulador de producción",
+        summary,
+        config.display_seconds,
+    )
 
 
 if __name__ == "__main__":
