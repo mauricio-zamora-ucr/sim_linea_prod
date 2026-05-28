@@ -183,7 +183,8 @@ def request_config(host: str, port: int) -> Optional[SimulationConfig]:
     try:
         with socket.create_connection((host, port), timeout=3) as conn:
             conn.sendall(json.dumps({"type": "config_request"}).encode("utf-8") + b"\n")
-            response = conn.makefile("r", encoding="utf-8").readline().strip()
+            with conn.makefile("r", encoding="utf-8") as reader:
+                response = reader.readline().strip()
             if not response:
                 return None
             payload = json.loads(response)
@@ -256,7 +257,7 @@ def run_simulation(
                 good_qty = order.quantity
             status = "done" if not rejected else "rework"
 
-            state["inventory"] -= rework_qty
+            state["inventory"] = max(0, state["inventory"] - rework_qty)
             state["completed"] += good_qty
             state["rework"] += rework_qty
 
@@ -331,7 +332,7 @@ def maybe_show_pygame_dashboard(
 
         for idx, (name, value, color) in enumerate(labels):
             y = 40 + idx * 90
-            pygame.draw.rect(screen, color, pygame.Rect(40, y, max(1, value * 4), 40))
+            pygame.draw.rect(screen, color, pygame.Rect(40, y, max(0, value * 4), 40))
             txt = font.render(f"{name}: {value}", True, (240, 240, 240))
             screen.blit(txt, (40, y - 24))
 
