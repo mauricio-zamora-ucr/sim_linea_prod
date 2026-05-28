@@ -239,7 +239,7 @@ def run_simulation(
                 good_qty = order.quantity
             status = "done" if not rejected else "rework"
 
-            state["inventory"] += good_qty - order.quantity
+            state["inventory"] -= rework_qty
             state["completed"] += good_qty
             state["rework"] += rework_qty
 
@@ -376,16 +376,25 @@ def main() -> None:
             "inventory": 0,
         }
         if server.student_state:
-            latest = max(
-                server.student_state.values(),
-                key=lambda item: float(item.get("sent_at", 0)),
-            )
+            latest_per_student = []
+            for student_id, payload in sorted(server.student_state.items()):
+                print(
+                    f"{student_id}: paso={payload.get('step', 0)} "
+                    f"completadas={payload.get('completed', 0)} "
+                    f"reproceso={payload.get('rework', 0)} "
+                    f"inventario={payload.get('inventory', 0)}"
+                )
+                latest_per_student.append(payload)
             summary = {
-                "completed": int(latest.get("completed", 0)),
-                "rework": int(latest.get("rework", 0)),
-                "inventory": int(latest.get("inventory", 0)),
+                "completed": sum(int(p.get("completed", 0)) for p in latest_per_student),
+                "rework": sum(int(p.get("rework", 0)) for p in latest_per_student),
+                "inventory": sum(int(p.get("inventory", 0)) for p in latest_per_student),
             }
-        maybe_show_pygame_dashboard(args.headless, "Panel de profesor", summary)
+        maybe_show_pygame_dashboard(
+            args.headless,
+            f"Panel de profesor ({len(server.student_state)} estudiantes)",
+            summary,
+        )
         return
 
     teacher_config = request_config(args.teacher_host, args.teacher_port)
