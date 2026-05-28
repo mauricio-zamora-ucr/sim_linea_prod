@@ -241,8 +241,9 @@ def run_simulation(
 
             rejected = rng.random() < config.rework_probability
             if rejected:
+                max_rework = order.quantity if order.quantity <= 1 else order.quantity - 1
                 rework_qty = min(
-                    order.quantity,
+                    max_rework,
                     max(
                         1,
                         round(
@@ -332,7 +333,7 @@ def maybe_show_pygame_dashboard(
 
         for idx, (name, value, color) in enumerate(labels):
             y = 40 + idx * 90
-            pygame.draw.rect(screen, color, pygame.Rect(40, y, max(0, value * 4), 40))
+            pygame.draw.rect(screen, color, pygame.Rect(40, y, min(720, max(0, value * 4)), 40))
             txt = font.render(f"{name}: {value}", True, (240, 240, 240))
             screen.blit(txt, (40, y - 24))
 
